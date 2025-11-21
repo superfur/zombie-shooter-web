@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>僵尸生存战 3D</title>
+    <style>
+      body { margin: 0; overflow: hidden; user-select: none; font-family: 'Arial', sans-serif; touch-action: none; }
+      #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+      
+      /* 准星 */
+      #crosshair-container {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        display: flex; justify-content: center; align-items: center;
+      }
+      #crosshair {
+        width: 20px; height: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
+        box-shadow: 0 0 4px black;
+        transition: width 0.1s, height 0.1s;
+      }
+      #crosshair.shooting {
+        width: 40px; height: 40px; border-color: rgba(255, 0, 0, 0.5);
+      }
+      #crosshair::after {
+        content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+        background: red; transform: translate(-50%, -50%); border-radius: 50%;
+      }
+
+      #stats {
+        position: absolute; top: 20px; left: 20px; color: white; font-size: 20px; text-shadow: 2px 2px 2px black;
+      }
+      
+      #ammo-container {
+        position: absolute; bottom: 150px; right: 20px; /* 移动端位置稍微上移 */
+        color: white; font-size: 24px; text-shadow: 2px 2px 2px black;
+        text-align: right;
+      }
+      #reload-msg { display: none; font-size: 16px; color: #ffff00; }
+      
+      /* 伤害数字 */
+      .damage-text {
+        position: absolute; color: #ff0000; font-weight: bold; font-size: 20px;
+        text-shadow: 1px 1px 0 #000; pointer-events: none;
+        animation: floatUp 1s forwards;
+      }
+      .damage-crit { color: #ffff00; font-size: 32px; z-index: 100; }
+
+      @keyframes floatUp {
+        0% { opacity: 1; transform: translateY(0) scale(1); }
+        100% { opacity: 0; transform: translateY(-50px) scale(1.2); }
+      }
+
+      #game-over, #start-screen {
+        display: flex; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.8); color: white;
+        flex-direction: column; justify-content: center; align-items: center;
+        font-size: 32px; pointer-events: auto; z-index: 20;
+      }
+      #game-over { display: none; color: red; }
+      #restart-btn {
+        margin-top: 20px; padding: 10px 30px; font-size: 24px; cursor: pointer;
+        background: #333; color: white; border: 2px solid white;
+      }
+      
+      /* --- 移动端控件 (默认隐藏) --- */
+      #mobile-controls {
+        display: none;
+        pointer-events: auto; /* 允许点击 */
+      }
+
+      /* 虚拟摇杆区域 (左下) */
+      #joystick-zone {
+        position: absolute; bottom: 50px; left: 50px;
+        width: 150px; height: 150px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+      }
+      #joystick-knob {
+        position: absolute; top: 50%; left: 50%;
+        width: 50px; height: 50px;
+        background: rgba(255, 255, 255, 0.5);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      /* 右侧操作区 */
+      .action-btn {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.5);
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        border-radius: 50%;
+        color: white;
+        display: flex; justify-content: center; align-items: center;
+        font-size: 16px; font-weight: bold;
+        user-select: none;
+        active: { background: rgba(255, 255, 255, 0.3); }
+      }
+
+      #fire-btn {
+        bottom: 80px; right: 40px;
+        width: 80px; height: 80px;
+        background: rgba(255, 0, 0, 0.3);
+        border-color: rgba(255, 0, 0, 0.6);
+      }
+      
+      #jump-btn {
+        bottom: 180px; right: 50px;
+        width: 60px; height: 60px;
+      }
+
+      #reload-btn {
+        bottom: 40px; right: 140px;
+        width: 50px; height: 50px;
+        font-size: 12px;
+      }
+
+      #switch-btn {
+        bottom: 120px; right: 140px;
+        width: 50px; height: 50px;
+        font-size: 12px;
+      }
+      
+      /* 视角控制区 (右半屏隐形遮罩) */
+      #touch-look-zone {
+        position: absolute; top: 0; right: 0;
+        width: 50%; height: 100%;
+        z-index: 5;
+        /* debug: background: rgba(0, 255, 0, 0.1); */
+      }
+
+      /* 平板/移动端媒体查询 */
+      @media (max-width: 1024px) or (hover: none) {
+        #mobile-controls { display: block; }
+        #ammo-container { bottom: auto; top: 60px; right: 20px; }
+        .instruction { display: none; } /* 隐藏PC按键提示 */
+        
+        /* 调整 UI 布局 */
+        #stats { font-size: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui-layer">
+      <div id="crosshair-container"><div id="crosshair"></div></div>
+      
+      <div id="stats">
+        <div class="stat-item">❤️ <span id="health">100</span></div>
+        <div class="stat-item">💀 <span id="score">0</span></div>
+      </div>
+      
+      <div id="ammo-container">
+        <div id="ammo-count">30 / 90</div>
+        <div id="reload-msg">RELOAD</div>
+      </div>
+
+      <!-- 移动端控件 -->
+      <div id="mobile-controls">
+        <div id="touch-look-zone"></div> <!-- 用于右半屏滑动视角 -->
+        
+        <div id="joystick-zone">
+          <div id="joystick-knob"></div>
+        </div>
+
+        <div id="fire-btn" class="action-btn">🔥</div>
+        <div id="jump-btn" class="action-btn">跳</div>
+        <div id="reload-btn" class="action-btn">R</div>
+        <div id="switch-btn" class="action-btn">切枪</div>
+      </div>
+
+      <div id="game-over">
+        <div>GAME OVER</div>
+        <button id="restart-btn">重新开始</button>
+      </div>
+      <div id="start-screen">
+        <div id="start-text">点击开始</div>
+        <div class="instruction">WASD 移动 | R 换弹 | 123 切枪</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
